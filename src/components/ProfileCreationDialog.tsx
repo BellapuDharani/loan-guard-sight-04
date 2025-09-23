@@ -10,7 +10,7 @@ interface ProfileCreationDialogProps {
   open: boolean;
   onClose: () => void;
   mobile: string;
-  onProfileCreated: (profile: UserProfile) => void;
+  onProfileCreated: (profile: { name: string; loanId: string }) => void;
 }
 
 export interface UserProfile {
@@ -44,32 +44,24 @@ export const ProfileCreationDialog: React.FC<ProfileCreationDialogProps> = ({
 
     setIsLoading(true);
 
-    // Create profile
-    const profile: UserProfile = {
-      id: `user_${Date.now()}_${Math.random().toString(36).substring(2)}`,
-      mobile: mobile,
+    // Create profile object - don't save to localStorage yet (AuthContext will handle that)
+    const profile = {
       name: name.trim(),
-      loanId: loanId.trim(),
-      createdAt: new Date()
+      loanId: loanId.trim()
     };
 
-    // Store profile in localStorage
-    const existingProfiles = JSON.parse(localStorage.getItem('userProfiles') || '[]');
-    existingProfiles.push(profile);
-    localStorage.setItem('userProfiles', JSON.stringify(existingProfiles));
-
-    toast({
-      title: 'Profile Created',
-      description: `Welcome ${name}! Your profile has been created successfully.`,
-    });
-
+    console.log('Sending profile data:', profile);
     onProfileCreated(profile);
-    onClose();
+    onClose(); // Close dialog after sending data
+    
+    // Reset form
+    setName('');
+    setLoanId('');
     setIsLoading(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -110,18 +102,10 @@ export const ProfileCreationDialog: React.FC<ProfileCreationDialogProps> = ({
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-              disabled={isLoading}
-            >
-              Cancel
-            </Button>
+          <div className="flex">
             <Button
               onClick={handleCreateProfile}
-              className="flex-1 btn-primary"
+              className="w-full btn-primary"
               disabled={isLoading}
             >
               {isLoading ? 'Creating...' : 'Create Profile'}

@@ -102,17 +102,23 @@ export const Login: React.FC = () => {
   };
 
   const handleProfileCreated = async (profile: any) => {
+    console.log('Profile creation started:', { profile, currentMobile, userOTP });
     setIsLoading(true);
     try {
-      await verifyUserOTP(currentMobile!, userOTP, profile);
+      if (!currentMobile || !userOTP) {
+        throw new Error('Missing mobile or OTP');
+      }
+      
+      await verifyUserOTP(currentMobile, userOTP, profile);
       toast({
-        title: 'Login Successful',
+        title: 'Profile Created Successfully',
         description: 'Welcome to LoanTrack Pro!',
       });
     } catch (error) {
+      console.error('Profile creation error:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to create profile',
+        title: 'Profile Creation Failed',
+        description: error instanceof Error ? error.message : 'Failed to create profile. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -373,13 +379,16 @@ export const Login: React.FC = () => {
         </div>
       </div>
 
-      {/* Profile Creation Dialog */}
-      <ProfileCreationDialog
-        open={needsProfile}
-        onClose={() => {}}
-        mobile={currentMobile || ''}
-        onProfileCreated={handleProfileCreated}
-      />
+        {/* Profile Creation Dialog */}
+        <ProfileCreationDialog
+          open={needsProfile}
+          onClose={() => {
+            // This will be called when profile creation is initiated
+            // The dialog will close, but if there's an error, needsProfile will remain true
+          }}
+          mobile={currentMobile || ''}
+          onProfileCreated={handleProfileCreated}
+        />
     </div>
   );
 };

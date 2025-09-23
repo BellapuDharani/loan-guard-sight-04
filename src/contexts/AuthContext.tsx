@@ -72,6 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const storedOTP = sessionStorage.getItem(`otp_${mobile}`);
+      console.log('Verifying OTP:', { mobile, otp, storedOTP, hasProfile: !!profile });
       
       if (storedOTP !== otp) {
         throw new Error('Invalid OTP');
@@ -82,10 +83,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let existingProfile = existingProfiles.find((p: any) => p.mobile === mobile);
 
       if (!existingProfile && !profile) {
-        // Need to create profile
+        // Need to create profile - but keep OTP for later verification
         setCurrentMobile(mobile);
         setNeedsProfile(true);
-        sessionStorage.removeItem(`otp_${mobile}`);
+        // Don't clear OTP yet - we need it for final verification
         setIsLoading(false);
         return;
       }
@@ -101,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         existingProfiles.push(existingProfile);
         localStorage.setItem('userProfiles', JSON.stringify(existingProfiles));
+        console.log('Created new profile:', existingProfile);
       }
 
       const user: User = { 
@@ -118,9 +120,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setNeedsProfile(false);
       setCurrentMobile(null);
       
-      // Clean up OTP
+      // Clean up OTP only after successful login
       sessionStorage.removeItem(`otp_${mobile}`);
+      console.log('User logged in successfully:', user);
     } catch (error) {
+      console.error('Error in verifyUserOTP:', error);
       throw error;
     } finally {
       setIsLoading(false);
