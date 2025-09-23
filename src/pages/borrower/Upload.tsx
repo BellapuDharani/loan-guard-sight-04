@@ -28,6 +28,15 @@ export const Upload: React.FC = () => {
     setFiles(userFiles);
   }, []);
 
+  const refreshFiles = () => {
+    const existingFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
+    const userFiles = existingFiles.filter((file: any) => {
+      const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+      return file.userId === userData.id;
+    });
+    setFiles(userFiles);
+  };
+
   const handleFiles = async (fileList: FileList) => {
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -54,6 +63,8 @@ export const Upload: React.FC = () => {
         const uploadedFile = await uploadFile(file);
         if (uploadedFile) {
           setFiles(prev => [...prev, uploadedFile]);
+          // Refresh the files list to get the latest data
+          setTimeout(refreshFiles, 500);
         }
       } catch (error) {
         console.error('Upload error:', error);

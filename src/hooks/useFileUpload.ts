@@ -73,6 +73,9 @@ export const useFileUpload = () => {
       clearInterval(progressInterval);
       setUploadProgress(100);
 
+      // Get current user data
+      const currentUser = JSON.parse(localStorage.getItem('user_data') || '{}');
+
       const uploadedFile: UploadedFile = {
         id: uploadData.path,
         name: file.name,
@@ -83,14 +86,23 @@ export const useFileUpload = () => {
         location
       };
 
-      // Store file metadata in database (you can add this later if needed)
-      // For now, we'll just store in localStorage for demo purposes
-      const existingFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
-      existingFiles.push({
+      // Store file metadata with user info for cross-session persistence
+      const fileWithUserInfo = {
         ...uploadedFile,
         loanId: loanId || 'default',
-        userId: JSON.parse(localStorage.getItem('user_data') || '{}').id
-      });
+        userId: currentUser.id || 'unknown',
+        userName: currentUser.name || 'Unknown User',
+        userMobile: currentUser.mobile || ''
+      };
+
+      // Store in a more persistent way for officer dashboard
+      const allUploadedFiles = JSON.parse(localStorage.getItem('allUploadedFiles') || '[]');
+      allUploadedFiles.push(fileWithUserInfo);
+      localStorage.setItem('allUploadedFiles', JSON.stringify(allUploadedFiles));
+
+      // Also keep the existing storage for user-specific view
+      const existingFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
+      existingFiles.push(fileWithUserInfo);
       localStorage.setItem('uploadedFiles', JSON.stringify(existingFiles));
 
       toast({
@@ -124,10 +136,14 @@ export const useFileUpload = () => {
         throw error;
       }
 
-      // Remove from localStorage
+      // Remove from both storage locations
       const existingFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
       const updatedFiles = existingFiles.filter((file: any) => file.id !== filePath);
       localStorage.setItem('uploadedFiles', JSON.stringify(updatedFiles));
+
+      const allFiles = JSON.parse(localStorage.getItem('allUploadedFiles') || '[]');
+      const updatedAllFiles = allFiles.filter((file: any) => file.id !== filePath);
+      localStorage.setItem('allUploadedFiles', JSON.stringify(updatedAllFiles));
 
       toast({
         title: 'File Deleted',

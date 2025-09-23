@@ -84,14 +84,14 @@ export const OfficerDashboard: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Load uploaded files from localStorage to simulate real users with files
     const loadUsersWithFiles = () => {
-      const uploadedFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
+      // Load from the persistent storage that works across user sessions
+      const allUploadedFiles = JSON.parse(localStorage.getItem('allUploadedFiles') || '[]');
       
-      // Group files by user
-      const userFileMap = new Map<string, UserFile[]>();
+      // Group files by user ID
+      const userFileMap = new Map<string, any[]>();
       
-      uploadedFiles.forEach((file: any) => {
+      allUploadedFiles.forEach((file: any) => {
         if (!userFileMap.has(file.userId)) {
           userFileMap.set(file.userId, []);
         }
@@ -101,14 +101,12 @@ export const OfficerDashboard: React.FC = () => {
       // Create user objects with their files
       const usersWithFiles: UserWithFiles[] = [];
       userFileMap.forEach((files, userId) => {
-        if (files.length > 0) {
-          // Get user data from first file or create demo data
-          const userData = userId === '1' ? { name: 'Demo Borrower', mobile: '+10000000001' } : { name: `User ${userId}` };
-          
+        if (files.length > 0 && userId !== 'unknown') {
+          const firstFile = files[0];
           usersWithFiles.push({
             id: userId,
-            name: userData.name,
-            mobile: userData.mobile,
+            name: firstFile.userName || `User ${userId}`,
+            mobile: firstFile.userMobile || undefined,
             files: files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()),
             totalFiles: files.length,
             lastActivity: new Date(Math.max(...files.map(f => new Date(f.uploadedAt).getTime())))
@@ -119,11 +117,11 @@ export const OfficerDashboard: React.FC = () => {
       setUsers(usersWithFiles);
 
       // Update loan summary based on actual data
-      const totalFiles = uploadedFiles.length;
+      const totalFiles = allUploadedFiles.length;
       setLoanSummary({
         total: usersWithFiles.length,
-        pending: Math.max(0, usersWithFiles.length - 1),
-        verified: Math.min(1, usersWithFiles.length),
+        pending: Math.max(0, usersWithFiles.length),
+        verified: 0,
         flagged: 0
       });
 
@@ -133,7 +131,7 @@ export const OfficerDashboard: React.FC = () => {
         newAlerts.push({
           id: '1',
           type: 'location',
-          message: `${totalFiles} new document(s) uploaded requiring verification`,
+          message: `${totalFiles} document(s) uploaded by ${usersWithFiles.length} user(s) requiring verification`,
           loanId: 'LN-001',
           timestamp: new Date().toISOString(),
           severity: 'medium'
@@ -141,14 +139,17 @@ export const OfficerDashboard: React.FC = () => {
       }
       setAlerts(newAlerts);
 
-      // Generate recent activity
-      const activities: RecentActivity[] = uploadedFiles.slice(0, 3).map((file: any, index: number) => ({
-        id: (index + 1).toString(),
-        type: 'upload' as const,
-        description: `${file.name} uploaded by user`,
-        timestamp: file.uploadedAt || new Date().toISOString(),
-        status: 'success' as const
-      }));
+      // Generate recent activity from all files
+      const activities: RecentActivity[] = allUploadedFiles
+        .slice(-3)
+        .reverse()
+        .map((file: any, index: number) => ({
+          id: (index + 1).toString(),
+          type: 'upload' as const,
+          description: `${file.name} uploaded by ${file.userName || 'user'}`,
+          timestamp: file.uploadedAt || new Date().toISOString(),
+          status: 'success' as const
+        }));
       setRecentActivity(activities);
 
       setIsLoading(false);
