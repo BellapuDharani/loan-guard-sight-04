@@ -1,114 +1,92 @@
-import React, { useState, useRef } from 'react';
-import { Upload as UploadIcon, Camera, MapPin, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload as UploadIcon, Camera, File, MapPin, CheckCircle, X, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useToast } from '@/hooks/use-toast';
-
-interface UploadFile {
-  file: File;
-  preview: string;
-  id: string;
-}
+import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
 
 export const Upload: React.FC = () => {
-  const [selectedLoan, setSelectedLoan] = useState<string>('');
-  const [uploadedFiles, setUploadedFiles] = useState<UploadFile[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { uploadFile, deleteFile, uploading, uploadProgress } = useFileUpload();
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    
-    files.forEach(file => {
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const newFile: UploadFile = {
-            file,
-            preview: e.target?.result as string,
-            id: Math.random().toString(36).substr(2, 9)
-          };
-          setUploadedFiles(prev => [...prev, newFile]);
-        };
-        reader.readAsDataURL(file);
-      }
+  useEffect(() => {
+    const existingFiles = JSON.parse(localStorage.getItem('uploadedFiles') || '[]');
+    const userFiles = existingFiles.filter((file: any) => {
+      const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+      return file.userId === userData.id;
     });
-  };
+    setFiles(userFiles);
+  }, []);
 
-  const getLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setGpsLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-          toast({
-            title: 'Location captured',
-            description: 'GPS coordinates have been recorded.',
-          });
-        },
-        (error) => {
-          toast({
-            title: 'Location access denied',
-            description: 'Please enable location services for accurate verification.',
-            variant: 'destructive',
-          });
+  const handleFiles = async (fileList: FileList) => {
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      
+      if (!file.type.startsWith('image/') && !file.type.includes('pdf')) {
+        toast({
+          title: 'Invalid file type',
+          description: `${file.name} is not supported. Please upload images or PDF files.`,
+          variant: 'destructive',
+        });
+        continue;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: 'File too large',
+          description: `${file.name} is too large. Please upload files smaller than 10MB.`,
+          variant: 'destructive',
+        });
+        continue;
+      }
+
+      try {
+        const uploadedFile = await uploadFile(file);
+        if (uploadedFile) {
+          setFiles(prev => [...prev, uploadedFile]);
         }
-      );
+      } catch (error) {
+        console.error('Upload error:', error);
+      }
     }
   };
 
-  const handleUpload = async () => {
-    if (!selectedLoan || uploadedFiles.length === 0) {
-      toast({
-        title: 'Missing information',
-        description: 'Please select a loan and upload at least one file.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsUploading(true);
-    
-    try {
-      // Simulate upload process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      toast({
-        title: 'Upload successful',
-        description: `${uploadedFiles.length} file(s) uploaded for verification.`,
-      });
-      
-      // Reset form
-      setUploadedFiles([]);
-      setSelectedLoan('');
-      setGpsLocation(null);
-      
-    } catch (error) {
-      toast({
-        title: 'Upload failed',
-        description: 'Please try again or contact support.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsUploading(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files) {
+      handleFiles(e.dataTransfer.files);
     }
   };
 
-  const removeFile = (id: string) => {
-    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  const removeFile = async (id: string) => {
+    const fileToRemove = files.find(f => f.id === id);
+    if (fileToRemove) {
+      const success = await deleteFile(id);
+      if (success) {
+        setFiles(files.filter(file => file.id !== id));
+      }
+    }
+  };
+
+  const viewFile = (file: UploadedFile) => {
+    setSelectedFile(file);
+    setViewDialogOpen(true);
   };
 
   return (
     <DashboardLayout>
       <div className="space-y-8 fade-in">
-        {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-foreground">Upload Proof Documents</h1>
           <p className="text-muted-foreground mt-1">
@@ -117,38 +95,21 @@ export const Upload: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Upload Form */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Loan Selection */}
-            <Card className="card-elevated">
-              <CardHeader>
-                <CardTitle>Select Loan</CardTitle>
-                <CardDescription>Choose which loan these documents are for</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Select value={selectedLoan} onValueChange={setSelectedLoan}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a loan" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="LN-123">Loan LN-123 - $50,000</SelectItem>
-                    <SelectItem value="LN-124">Loan LN-124 - $25,000</SelectItem>
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
-
-            {/* File Upload */}
             <Card className="card-elevated">
               <CardHeader>
                 <CardTitle>Upload Files</CardTitle>
-                <CardDescription>
-                  Select images or PDF documents (max 10MB per file)
-                </CardDescription>
+                <CardDescription>Drag and drop files or click to browse</CardDescription>
               </CardHeader>
               <CardContent>
-                <div 
-                  className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                <div
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                    dragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+                  }`}
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDragEnter={() => setDragActive(true)}
+                  onDragLeave={() => setDragActive(false)}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <UploadIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -163,78 +124,62 @@ export const Upload: React.FC = () => {
                     type="file"
                     multiple
                     accept="image/*,application/pdf"
-                    onChange={handleFileSelect}
+                    onChange={(e) => e.target.files && handleFiles(e.target.files)}
                     className="hidden"
                   />
                 </div>
 
-                {/* Uploaded Files */}
-                {uploadedFiles.length > 0 && (
+                {uploading && (
+                  <div className="mt-4">
+                    <Progress value={uploadProgress} className="h-2" />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Uploading... {uploadProgress}%
+                    </p>
+                  </div>
+                )}
+
+                {files.length > 0 && (
                   <div className="mt-6 space-y-3">
-                    <h4 className="font-medium text-foreground">Uploaded Files</h4>
-                    {uploadedFiles.map((file) => (
-                      <div key={file.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                        <FileText className="w-5 h-5 text-primary" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">{file.file.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {(file.file.size / 1024 / 1024).toFixed(2)} MB
-                          </p>
+                    <h4 className="font-medium text-foreground">Your Files ({files.length})</h4>
+                    {files.map((file) => (
+                      <div key={file.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                            {file.type.startsWith('image/') ? (
+                              <Camera className="w-5 h-5 text-primary" />
+                            ) : (
+                              <File className="w-5 h-5 text-primary" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{file.name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB • {new Date(file.uploadedAt).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => removeFile(file.id)}
-                        >
-                          Remove
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {file.location && (
+                            <Badge variant="outline" className="text-xs">
+                              <MapPin className="w-3 h-3 mr-1" />
+                              GPS
+                            </Badge>
+                          )}
+                          <Button variant="ghost" size="sm" onClick={() => viewFile(file)}>
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => removeFile(file.id)}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* GPS Location */}
-            <Card className="card-elevated">
-              <CardHeader>
-                <CardTitle>Location Verification</CardTitle>
-                <CardDescription>
-                  Capture your current location to verify document authenticity
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={getLocation}
-                    disabled={!!gpsLocation}
-                  >
-                    <MapPin className="w-4 h-4 mr-2" />
-                    {gpsLocation ? 'Location Captured' : 'Get Current Location'}
-                  </Button>
-                  {gpsLocation && (
-                    <div className="flex items-center gap-2 text-sm text-success">
-                      <CheckCircle className="w-4 h-4" />
-                      GPS: {gpsLocation.lat.toFixed(6)}, {gpsLocation.lng.toFixed(6)}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Submit */}
-            <Button
-              onClick={handleUpload}
-              disabled={isUploading || !selectedLoan || uploadedFiles.length === 0}
-              className="w-full btn-upload"
-              size="lg"
-            >
-              {isUploading ? 'Uploading...' : `Upload ${uploadedFiles.length} File(s)`}
-            </Button>
           </div>
 
-          {/* Guidelines Sidebar */}
           <div className="space-y-6">
             <Card className="card-hero">
               <CardHeader>
@@ -253,33 +198,9 @@ export const Upload: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <MapPin className="w-5 h-5 text-primary mt-0.5" />
                   <div>
-                    <h4 className="font-medium text-foreground">Location Required</h4>
+                    <h4 className="font-medium text-foreground">GPS Location</h4>
                     <p className="text-sm text-muted-foreground">
-                      GPS location helps verify document authenticity
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <FileText className="w-5 h-5 text-primary mt-0.5" />
-                  <div>
-                    <h4 className="font-medium text-foreground">Valid Documents</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Upload invoices, receipts, or purchase orders only
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-warning/20 bg-warning/5">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-warning mt-0.5" />
-                  <div>
-                    <h4 className="font-medium text-warning">Important</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Uploaded documents will be analyzed using AI for verification. 
-                      Ensure all information is accurate and complete.
+                      Location is automatically captured when available
                     </p>
                   </div>
                 </div>
@@ -287,6 +208,48 @@ export const Upload: React.FC = () => {
             </Card>
           </div>
         </div>
+
+        <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>{selectedFile?.name}</DialogTitle>
+            </DialogHeader>
+            {selectedFile && (
+              <div className="space-y-4">
+                <div className="flex gap-4 text-sm text-muted-foreground">
+                  <span>Size: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                  <span>Uploaded: {new Date(selectedFile.uploadedAt).toLocaleString()}</span>
+                  {selectedFile.location && (
+                    <span>GPS: {selectedFile.location.latitude.toFixed(4)}, {selectedFile.location.longitude.toFixed(4)}</span>
+                  )}
+                </div>
+                <div className="flex justify-center">
+                  {selectedFile.type.startsWith('image/') ? (
+                    <img 
+                      src={selectedFile.url} 
+                      alt={selectedFile.name}
+                      className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-full h-96 bg-muted rounded-lg flex items-center justify-center">
+                      <div className="text-center">
+                        <File className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                        <p className="text-muted-foreground">Preview not available</p>
+                        <Button 
+                          variant="outline" 
+                          className="mt-4"
+                          onClick={() => window.open(selectedFile.url, '_blank')}
+                        >
+                          Download File
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

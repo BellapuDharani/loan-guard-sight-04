@@ -1,37 +1,68 @@
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Shield, Phone, Lock } from 'lucide-react';
+import { Shield, Phone, Lock, User, UserCheck, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
 export const Login: React.FC = () => {
-  const [username, setUsername] = useState('');
+  const [activeTab, setActiveTab] = useState<'user' | 'officer'>('user');
+  const [darkMode, setDarkMode] = useState(false);
+  
+  // User states
+  const [mobile, setMobile] = useState('');
+  const [userOTP, setUserOTP] = useState('');
+  const [showUserOTP, setShowUserOTP] = useState(false);
+  const [generatedUserOTP, setGeneratedUserOTP] = useState('');
+  
+  // Officer states
+  const [officerId, setOfficerId] = useState('');
   const [password, setPassword] = useState('');
+  const [officerOTP, setOfficerOTP] = useState('');
+  const [showOfficerOTP, setShowOfficerOTP] = useState(false);
+  const [generatedOfficerOTP, setGeneratedOfficerOTP] = useState('');
+  
   const [isLoading, setIsLoading] = useState(false);
-  const { user, login } = useAuth();
+  const { user, sendUserOTP, verifyUserOTP, sendOfficerOTP, verifyOfficerOTP } = useAuth();
   const { toast } = useToast();
 
   if (user) {
     return <Navigate to={user.role === 'officer' ? '/officer/dashboard' : '/dashboard'} replace />;
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+    document.documentElement.classList.toggle('dark');
+  };
 
-    try {
-      await login(username, password);
+  const handleSendUserOTP = async () => {
+    if (!mobile) {
       toast({
-        title: 'Login successful',
-        description: 'Welcome back!',
+        title: 'Error',
+        description: 'Please enter your mobile number',
+        variant: 'destructive',
       });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await sendUserOTP(mobile);
+      if (result.success && result.otp) {
+        setGeneratedUserOTP(result.otp);
+        setShowUserOTP(true);
+        toast({
+          title: 'OTP Sent',
+          description: `Demo OTP: ${result.otp}`,
+        });
+      }
     } catch (error) {
       toast({
-        title: 'Login failed',
-        description: 'Please check your credentials and try again.',
+        title: 'Error',
+        description: 'Failed to send OTP',
         variant: 'destructive',
       });
     } finally {
@@ -39,46 +70,226 @@ export const Login: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = (demoUsername: string, role: string) => {
-    setUsername(demoUsername);
-    setPassword('password');
+  const handleVerifyUserOTP = async () => {
+    if (!userOTP) {
+      toast({
+        title: 'Error',
+        description: 'Please enter the OTP',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await verifyUserOTP(mobile, userOTP);
+      toast({
+        title: 'Login Successful',
+        description: 'Welcome to LoanTrack Pro!',
+      });
+    } catch (error) {
+      toast({
+        title: 'Invalid OTP',
+        description: 'Please check your OTP and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSendOfficerOTP = async () => {
+    if (!officerId || !password) {
+      toast({
+        title: 'Error',
+        description: 'Please enter Officer ID and password',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await sendOfficerOTP(officerId, password);
+      if (result.success && result.otp) {
+        setGeneratedOfficerOTP(result.otp);
+        setShowOfficerOTP(true);
+        toast({
+          title: 'OTP Sent',
+          description: `Demo OTP: ${result.otp}`,
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error || 'Invalid credentials',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to send OTP',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyOfficerOTP = async () => {
+    if (!officerOTP) {
+      toast({
+        title: 'Error',
+        description: 'Please enter the OTP',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await verifyOfficerOTP(officerId, officerOTP);
+      toast({
+        title: 'Login Successful',
+        description: 'Welcome Officer!',
+      });
+    } catch (error) {
+      toast({
+        title: 'Invalid OTP',
+        description: 'Please check your OTP and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-6">
-        {/* Logo & Header */}
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4">
-            <Shield className="w-8 h-8 text-primary-foreground" />
+        {/* Header with Dark Mode Toggle */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="text-center flex-1">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary rounded-2xl mb-4">
+              <Shield className="w-8 h-8 text-primary-foreground" />
+            </div>
+            <h1 className="text-3xl font-bold text-foreground">LoanTrack Pro Demo</h1>
+            <p className="text-muted-foreground mt-2">
+              AI-powered loan verification system
+            </p>
           </div>
-          <h1 className="text-3xl font-bold text-foreground">Loan Guard Proof</h1>
-          <p className="text-muted-foreground mt-2">
-            AI-powered loan verification system
-          </p>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleDarkMode}
+            className="absolute top-4 right-4"
+          >
+            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
         </div>
 
-        {/* Login Form */}
-        <Card className="card-elevated">
-          <CardHeader>
-            <CardTitle>Sign In</CardTitle>
-            <CardDescription>
-              Enter your credentials to access your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Auth Tabs */}
+        <div className="flex mb-6 bg-muted rounded-lg p-1">
+          <Button
+            variant={activeTab === 'user' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('user')}
+            className="flex-1"
+          >
+            <User className="w-4 h-4 mr-2" />
+            User Login
+          </Button>
+          <Button
+            variant={activeTab === 'officer' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('officer')}
+            className="flex-1"
+          >
+            <UserCheck className="w-4 h-4 mr-2" />
+            Officer Login
+          </Button>
+        </div>
+
+        {/* User Login Form */}
+        {activeTab === 'user' && (
+          <Card className="card-elevated">
+            <CardHeader>
+              <CardTitle>User Login</CardTitle>
+              <CardDescription>
+                Enter your mobile number to receive OTP
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Username</label>
+                <label className="text-sm font-medium text-foreground">Mobile Number</label>
                 <div className="relative">
+                  <Phone className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                   <Input
-                    type="text"
-                    placeholder="Enter your username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
+                    type="tel"
+                    placeholder="Enter your mobile number"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    className="pl-10"
+                    disabled={showUserOTP}
                   />
                 </div>
+              </div>
+
+              {!showUserOTP ? (
+                <Button
+                  onClick={handleSendUserOTP}
+                  className="w-full btn-primary"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Sending OTP...' : 'Send OTP'}
+                </Button>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Enter OTP</label>
+                    <Input
+                      type="text"
+                      placeholder="Enter 6-digit OTP"
+                      value={userOTP}
+                      onChange={(e) => setUserOTP(e.target.value)}
+                      maxLength={6}
+                    />
+                    {generatedUserOTP && (
+                      <Badge variant="outline" className="text-xs">
+                        Demo OTP: {generatedUserOTP}
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    onClick={handleVerifyUserOTP}
+                    className="w-full btn-primary"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Verifying...' : 'Verify OTP'}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Officer Login Form */}
+        {activeTab === 'officer' && (
+          <Card className="card-elevated">
+            <CardHeader>
+              <CardTitle>Officer Login</CardTitle>
+              <CardDescription>
+                Enter your credentials to access officer dashboard
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Officer ID</label>
+                <Input
+                  type="text"
+                  placeholder="Enter Officer ID (e.g., admin)"
+                  value={officerId}
+                  onChange={(e) => setOfficerId(e.target.value)}
+                  disabled={showOfficerOTP}
+                />
               </div>
 
               <div className="space-y-2">
@@ -87,50 +298,52 @@ export const Login: React.FC = () => {
                   <Lock className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                   <Input
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder="Enter Password (e.g., 1234)"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
-                    required
+                    disabled={showOfficerOTP}
                   />
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                className="w-full btn-primary"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Signing in...' : 'Sign In'}
-              </Button>
-            </form>
-
-            {/* Demo Accounts */}
-            <div className="mt-6 pt-6 border-t border-border">
-              <h3 className="text-sm font-medium text-foreground mb-3">Demo Accounts</h3>
-              <div className="space-y-2">
+              {!showOfficerOTP ? (
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDemoLogin('borrower', 'borrower')}
-                  className="w-full justify-start"
+                  onClick={handleSendOfficerOTP}
+                  className="w-full btn-primary"
+                  disabled={isLoading}
                 >
-                  <Shield className="w-4 h-4 mr-2" />
-                  Demo Borrower (borrower/password)
+                  {isLoading ? 'Sending OTP...' : 'Send OTP'}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDemoLogin('officer', 'officer')}
-                  className="w-full justify-start"
-                >
-                  <Shield className="w-4 h-4 mr-2" />
-                  Demo Loan Officer (officer/password)
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Enter OTP</label>
+                    <Input
+                      type="text"
+                      placeholder="Enter 4-digit OTP"
+                      value={officerOTP}
+                      onChange={(e) => setOfficerOTP(e.target.value)}
+                      maxLength={4}
+                    />
+                    {generatedOfficerOTP && (
+                      <Badge variant="outline" className="text-xs">
+                        Demo OTP: {generatedOfficerOTP}
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    onClick={handleVerifyOfficerOTP}
+                    className="w-full btn-primary"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Verifying...' : 'Verify OTP'}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Footer */}
         <div className="text-center text-sm text-muted-foreground">

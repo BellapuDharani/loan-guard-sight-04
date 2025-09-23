@@ -5,11 +5,16 @@ export interface User {
   username: string;
   role: 'user' | 'officer';
   name?: string;
+  mobile?: string;
+  officerId?: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password?: string, otp?: string) => Promise<void>;
+  sendUserOTP: (mobile: string) => Promise<{ success: boolean; otp?: string; error?: string }>;
+  verifyUserOTP: (mobile: string, otp: string) => Promise<void>;
+  sendOfficerOTP: (officerId: string, password: string) => Promise<{ success: boolean; otp?: string; error?: string }>;
+  verifyOfficerOTP: (officerId: string, otp: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -44,41 +49,92 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
-  const login = async (username: string, password?: string, otp?: string) => {
+  const sendUserOTP = async (mobile: string): Promise<{ success: boolean; otp?: string; error?: string }> => {
+    if (!mobile) {
+      return { success: false, error: 'Mobile number is required' };
+    }
+    
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store OTP temporarily (in production, this would be sent via SMS)
+    sessionStorage.setItem(`otp_${mobile}`, otp);
+    
+    return { success: true, otp }; // In production, don't return OTP
+  };
+
+  const verifyUserOTP = async (mobile: string, otp: string): Promise<void> => {
     setIsLoading(true);
     try {
-      // Simulate API call for now
-      const response = await new Promise<{ user: User; token: string }>((resolve, reject) => {
-        setTimeout(() => {
-          if (username === 'borrower' && password === 'password') {
-            resolve({
-              user: { id: '1', username, role: 'user', name: 'Demo Borrower' },
-              token: 'demo_user_token'
-            });
-          } else if (username === 'officer' && password === 'password') {
-            resolve({
-              user: { id: '2', username, role: 'officer', name: 'Demo Officer' },
-              token: 'demo_officer_token'
-            });
-          } else if (username === '+10000000001' || username === 'borrower') {
-            resolve({
-              user: { id: '1', username: 'borrower', role: 'user', name: 'Demo Borrower' },
-              token: 'demo_user_token'
-            });
-          } else if (username === '+10000000002' || username === 'officer') {
-            resolve({
-              user: { id: '2', username: 'officer', role: 'officer', name: 'Demo Officer' },
-              token: 'demo_officer_token'
-            });
-          } else {
-            reject(new Error('Invalid credentials'));
-          }
-        }, 500);
-      });
+      const storedOTP = sessionStorage.getItem(`otp_${mobile}`);
+      
+      if (storedOTP !== otp) {
+        throw new Error('Invalid OTP');
+      }
 
-      localStorage.setItem('auth_token', response.token);
-      localStorage.setItem('user_data', JSON.stringify(response.user));
-      setUser(response.user);
+      const user: User = { 
+        id: '1', 
+        username: mobile, 
+        role: 'user', 
+        name: 'Demo Borrower',
+        mobile 
+      };
+      
+      localStorage.setItem('auth_token', 'demo_user_token');
+      localStorage.setItem('user_data', JSON.stringify(user));
+      setUser(user);
+      
+      // Clean up OTP
+      sessionStorage.removeItem(`otp_${mobile}`);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const sendOfficerOTP = async (officerId: string, password: string): Promise<{ success: boolean; otp?: string; error?: string }> => {
+    if (!officerId || !password) {
+      return { success: false, error: 'Officer ID and password are required' };
+    }
+    
+    // Simple validation (in production, validate against database)
+    if (officerId !== 'admin' || password !== '1234') {
+      return { success: false, error: 'Invalid credentials' };
+    }
+    
+    // Generate 4-digit OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    
+    // Store OTP temporarily
+    sessionStorage.setItem(`officer_otp_${officerId}`, otp);
+    
+    return { success: true, otp }; // In production, don't return OTP
+  };
+
+  const verifyOfficerOTP = async (officerId: string, otp: string): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const storedOTP = sessionStorage.getItem(`officer_otp_${officerId}`);
+      
+      if (storedOTP !== otp) {
+        throw new Error('Invalid OTP');
+      }
+
+      const user: User = { 
+        id: '2', 
+        username: officerId, 
+        role: 'officer', 
+        name: 'Demo Officer',
+        officerId 
+      };
+      
+      localStorage.setItem('auth_token', 'demo_officer_token');
+      localStorage.setItem('user_data', JSON.stringify(user));
+      setUser(user);
+      
+      // Clean up OTP
+      sessionStorage.removeItem(`officer_otp_${officerId}`);
     } catch (error) {
       throw error;
     } finally {
@@ -93,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, sendUserOTP, verifyUserOTP, sendOfficerOTP, verifyOfficerOTP, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
