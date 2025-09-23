@@ -6,17 +6,20 @@ export interface User {
   role: 'user' | 'officer';
   name?: string;
   mobile?: string;
+  loanId?: string;
   officerId?: string;
 }
 
 interface AuthContextType {
   user: User | null;
   sendUserOTP: (mobile: string) => Promise<{ success: boolean; otp?: string; error?: string }>;
-  verifyUserOTP: (mobile: string, otp: string) => Promise<void>;
+  verifyUserOTP: (mobile: string, otp: string, profile?: { name: string; loanId: string }) => Promise<void>;
   sendOfficerOTP: (officerId: string, password: string) => Promise<{ success: boolean; otp?: string; error?: string }>;
   verifyOfficerOTP: (officerId: string, otp: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
+  needsProfile: boolean;
+  currentMobile: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -32,6 +35,8 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsProfile, setNeedsProfile] = useState(false);
+  const [currentMobile, setCurrentMobile] = useState<string | null>(null);
 
   useEffect(() => {
     // Check for existing session
@@ -63,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true, otp }; // In production, don't return OTP
   };
 
-  const verifyUserOTP = async (mobile: string, otp: string): Promise<void> => {
+  const verifyUserOTP = async (mobile: string, otp: string, profile?: { name: string; loanId: string }): Promise<void> => {
     setIsLoading(true);
     try {
       const storedOTP = sessionStorage.getItem(`otp_${mobile}`);
@@ -72,17 +77,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid OTP');
       }
 
+      // Check if profile already exists for this mobile
+      const existingProfiles = JSON.parse(localStorage.getItem('userProfiles') || '[]');
+      let existingProfile = existingProfiles.find((p: any) => p.mobile === mobile);
+
+      if (!existingProfile && !profile) {
+        // Need to create profile
+        setCurrentMobile(mobile);
+        setNeedsProfile(true);
+        sessionStorage.removeItem(`otp_${mobile}`);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!existingProfile && profile) {
+        // Create new profile
+        existingProfile = {
+          id: `user_${Date.now()}_${Math.random().toString(36).substring(2)}`,
+          mobile: mobile,
+          name: profile.name,
+          loanId: profile.loanId,
+          createdAt: new Date().toISOString()
+        };
+        existingProfiles.push(existingProfile);
+        localStorage.setItem('userProfiles', JSON.stringify(existingProfiles));
+      }
+
       const user: User = { 
-        id: '1', 
+        id: existingProfile.id, 
         username: mobile, 
         role: 'user', 
-        name: 'Demo Borrower',
-        mobile 
+        name: existingProfile.name,
+        mobile,
+        loanId: existingProfile.loanId
       };
       
       localStorage.setItem('auth_token', 'demo_user_token');
       localStorage.setItem('user_data', JSON.stringify(user));
       setUser(user);
+      setNeedsProfile(false);
+      setCurrentMobile(null);
       
       // Clean up OTP
       sessionStorage.removeItem(`otp_${mobile}`);
@@ -146,10 +180,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_data');
     setUser(null);
+    setNeedsProfile(false);
+    setCurrentMobile(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, sendUserOTP, verifyUserOTP, sendOfficerOTP, verifyOfficerOTP, logout, isLoading }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      sendUserOTP, 
+      verifyUserOTP, 
+      sendOfficerOTP, 
+      verifyOfficerOTP, 
+      logout, 
+      isLoading,
+      needsProfile,
+      currentMobile
+    }}>
       {children}
     </AuthContext.Provider>
   );

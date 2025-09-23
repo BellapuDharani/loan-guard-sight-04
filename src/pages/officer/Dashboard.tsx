@@ -11,12 +11,15 @@ import {
   MapPin,
   Camera,
   File,
-  Download
+  Download,
+  Search,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 
@@ -44,6 +47,14 @@ interface RecentActivity {
   status: 'success' | 'warning' | 'error';
 }
 
+interface UserProfile {
+  id: string;
+  mobile: string;
+  name: string;
+  loanId: string;
+  createdAt: string;
+}
+
 interface UserFile {
   id: string;
   name: string;
@@ -59,10 +70,7 @@ interface UserFile {
   loanId: string;
 }
 
-interface UserWithFiles {
-  id: string;
-  name: string;
-  mobile?: string;
+interface UserWithFiles extends UserProfile {
   files: UserFile[];
   totalFiles: number;
   lastActivity: Date;
@@ -78,6 +86,8 @@ export const OfficerDashboard: React.FC = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [users, setUsers] = useState<UserWithFiles[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<UserWithFiles[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState<UserFile | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,53 +95,50 @@ export const OfficerDashboard: React.FC = () => {
 
   useEffect(() => {
     const loadUsersWithFiles = () => {
-      // Load from the persistent storage that works across user sessions
+      // Load user profiles
+      const userProfiles: UserProfile[] = JSON.parse(localStorage.getItem('userProfiles') || '[]');
+      
+      // Load all uploaded files
       const allUploadedFiles = JSON.parse(localStorage.getItem('allUploadedFiles') || '[]');
       
-      // Group files by user ID
-      const userFileMap = new Map<string, any[]>();
-      
-      allUploadedFiles.forEach((file: any) => {
-        if (!userFileMap.has(file.userId)) {
-          userFileMap.set(file.userId, []);
-        }
-        userFileMap.get(file.userId)?.push(file);
+      // Create user objects with their files and profile data
+      const usersWithFiles: UserWithFiles[] = userProfiles.map(profile => {
+        const userFiles = allUploadedFiles.filter((file: any) => file.userId === profile.id);
+        
+        return {
+          ...profile,
+          files: userFiles.sort((a: any, b: any) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()),
+          totalFiles: userFiles.length,
+          lastActivity: userFiles.length > 0 
+            ? new Date(Math.max(...userFiles.map((f: any) => new Date(f.uploadedAt).getTime())))
+            : new Date(profile.createdAt)
+        };
       });
 
-      // Create user objects with their files
-      const usersWithFiles: UserWithFiles[] = [];
-      userFileMap.forEach((files, userId) => {
-        if (files.length > 0 && userId !== 'unknown') {
-          const firstFile = files[0];
-          usersWithFiles.push({
-            id: userId,
-            name: firstFile.userName || `User ${userId}`,
-            mobile: firstFile.userMobile || undefined,
-            files: files.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()),
-            totalFiles: files.length,
-            lastActivity: new Date(Math.max(...files.map(f => new Date(f.uploadedAt).getTime())))
-          });
-        }
-      });
+      // Sort by last activity
+      usersWithFiles.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
       setUsers(usersWithFiles);
+      setFilteredUsers(usersWithFiles);
 
       // Update loan summary based on actual data
-      const totalFiles = allUploadedFiles.length;
       setLoanSummary({
         total: usersWithFiles.length,
-        pending: Math.max(0, usersWithFiles.length),
+        pending: usersWithFiles.filter(u => u.totalFiles > 0).length,
         verified: 0,
         flagged: 0
       });
 
       // Generate alerts based on actual uploads
       const newAlerts: Alert[] = [];
+      const totalFiles = allUploadedFiles.length;
+      const usersWithUploads = usersWithFiles.filter(u => u.totalFiles > 0);
+      
       if (totalFiles > 0) {
         newAlerts.push({
           id: '1',
           type: 'location',
-          message: `${totalFiles} document(s) uploaded by ${usersWithFiles.length} user(s) requiring verification`,
+          message: `${totalFiles} document(s) uploaded by ${usersWithUploads.length} user(s) requiring verification`,
           loanId: 'LN-001',
           timestamp: new Date().toISOString(),
           severity: 'medium'
@@ -143,13 +150,16 @@ export const OfficerDashboard: React.FC = () => {
       const activities: RecentActivity[] = allUploadedFiles
         .slice(-3)
         .reverse()
-        .map((file: any, index: number) => ({
-          id: (index + 1).toString(),
-          type: 'upload' as const,
-          description: `${file.name} uploaded by ${file.userName || 'user'}`,
-          timestamp: file.uploadedAt || new Date().toISOString(),
-          status: 'success' as const
-        }));
+        .map((file: any, index: number) => {
+          const user = usersWithFiles.find(u => u.id === file.userId);
+          return {
+            id: (index + 1).toString(),
+            type: 'upload' as const,
+            description: `${file.name} uploaded by ${user?.name || 'Unknown User'}`,
+            timestamp: file.uploadedAt || new Date().toISOString(),
+            status: 'success' as const
+          };
+        });
       setRecentActivity(activities);
 
       setIsLoading(false);
@@ -157,10 +167,25 @@ export const OfficerDashboard: React.FC = () => {
 
     loadUsersWithFiles();
 
-    // Refresh data every 5 seconds to catch new uploads
-    const interval = setInterval(loadUsersWithFiles, 5000);
+    // Refresh data every 3 seconds to catch new uploads and profile creations
+    const interval = setInterval(loadUsersWithFiles, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  // Filter users based on search query
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredUsers(users);
+    } else {
+      const query = searchQuery.toLowerCase().trim();
+      const filtered = users.filter(user => 
+        user.name.toLowerCase().includes(query) ||
+        user.mobile.toLowerCase().includes(query) ||
+        user.loanId.toLowerCase().includes(query)
+      );
+      setFilteredUsers(filtered);
+    }
+  }, [searchQuery, users]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -241,7 +266,7 @@ export const OfficerDashboard: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Active Users</p>
+                  <p className="text-sm font-medium text-muted-foreground">Total Users</p>
                   <p className="text-2xl font-bold text-foreground">{loanSummary.total}</p>
                 </div>
                 <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
@@ -255,7 +280,7 @@ export const OfficerDashboard: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Pending Review</p>
+                  <p className="text-sm font-medium text-muted-foreground">With Uploads</p>
                   <p className="text-2xl font-bold text-warning">{loanSummary.pending}</p>
                 </div>
                 <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
@@ -301,81 +326,141 @@ export const OfficerDashboard: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Users & Documents</CardTitle>
-                  <CardDescription>Users who have uploaded verification documents</CardDescription>
+                  <CardDescription>Search and manage user profiles and their uploads</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => navigate('/officer/verification')}>
-                  View All
-                </Button>
+                <div className="flex gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search users, loan ID, mobile..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10 w-64"
+                    />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/officer/verification')}>
+                    View All
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {users.length === 0 ? (
+                {filteredUsers.length === 0 && searchQuery ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No users found matching "{searchQuery}"</p>
+                    <p className="text-sm mt-2">Try searching with a different term</p>
+                  </div>
+                ) : filteredUsers.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p>No users have uploaded documents yet</p>
-                    <p className="text-sm mt-2">Documents will appear here once users start uploading</p>
+                    <p>No user profiles created yet</p>
+                    <p className="text-sm mt-2">Profiles will appear here when users sign up</p>
                   </div>
                 ) : (
-                  users.slice(0, 3).map((user) => (
-                    <div key={user.id} className="space-y-3 p-4 rounded-lg bg-muted/50">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-foreground">{user.name}</p>
-                          {user.mobile && (
-                            <p className="text-sm text-muted-foreground">{user.mobile}</p>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <Badge variant="outline">{user.totalFiles} files</Badge>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {user.lastActivity.toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        {user.files.slice(0, 2).map((file) => (
-                          <div key={file.id} className="flex items-center justify-between p-2 bg-background rounded">
-                            <div className="flex items-center gap-2">
-                              {file.type.startsWith('image/') ? (
-                                <Camera className="w-4 h-4 text-primary" />
-                              ) : (
-                                <File className="w-4 h-4 text-primary" />
-                              )}
-                              <span className="text-sm truncate max-w-[150px]">{file.name}</span>
-                              {file.location && (
-                                <Badge variant="outline" className="text-xs">
-                                  <MapPin className="w-3 h-3 mr-1" />
-                                  GPS
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => viewFile(file)}
-                              >
-                                <Eye className="w-3 h-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => downloadFile(file)}
-                              >
-                                <Download className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        {user.files.length > 2 && (
-                          <p className="text-xs text-muted-foreground text-center">
-                            +{user.files.length - 2} more files
-                          </p>
+                  <>
+                    {searchQuery && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                        <span>Showing {filteredUsers.length} of {users.length} users</span>
+                        {searchQuery && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => setSearchQuery('')}
+                            className="text-xs"
+                          >
+                            Clear search
+                          </Button>
                         )}
                       </div>
-                    </div>
-                  ))
+                    )}
+                    {filteredUsers.slice(0, 5).map((user) => (
+                      <div key={user.id} className="space-y-3 p-4 rounded-lg bg-muted/50 border">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="font-medium text-foreground">{user.name}</p>
+                            <div className="flex gap-4 text-sm text-muted-foreground mt-1">
+                              <span>📱 {user.mobile}</span>
+                              <span>🆔 {user.loanId}</span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant="outline" className="mb-1">
+                              {user.totalFiles} files
+                            </Badge>
+                            <p className="text-xs text-muted-foreground">
+                              {user.lastActivity.toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {user.files.length > 0 && (
+                          <div className="space-y-2">
+                            <h5 className="text-sm font-medium text-muted-foreground">Recent uploads:</h5>
+                            {user.files.slice(0, 3).map((file) => (
+                              <div key={file.id} className="flex items-center justify-between p-2 bg-background rounded border">
+                                <div className="flex items-center gap-2">
+                                  {file.type.startsWith('image/') ? (
+                                    <Camera className="w-4 h-4 text-primary" />
+                                  ) : (
+                                    <File className="w-4 h-4 text-primary" />
+                                  )}
+                                  <span className="text-sm truncate max-w-[150px]">{file.name}</span>
+                                  {file.location && (
+                                    <Badge variant="outline" className="text-xs">
+                                      <MapPin className="w-3 h-3 mr-1" />
+                                      GPS
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => viewFile(file)}
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => downloadFile(file)}
+                                  >
+                                    <Download className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                            {user.files.length > 3 && (
+                              <p className="text-xs text-muted-foreground text-center">
+                                +{user.files.length - 3} more files
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        
+                        {user.files.length === 0 && (
+                          <div className="text-center py-4 text-muted-foreground">
+                            <Upload className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">No documents uploaded yet</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {filteredUsers.length > 5 && (
+                      <div className="text-center pt-4">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => navigate('/officer/verification')}
+                          className="w-full"
+                        >
+                          View All {filteredUsers.length} Users
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </CardContent>

@@ -9,12 +9,14 @@ import { Input } from '@/components/ui/input';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useToast } from '@/hooks/use-toast';
 import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
+import { CameraCapture } from '@/components/CameraCapture';
 
 export const Upload: React.FC = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { uploadFile, deleteFile, uploading, uploadProgress } = useFileUpload();
@@ -95,6 +97,18 @@ export const Upload: React.FC = () => {
     setViewDialogOpen(true);
   };
 
+  const handleCameraCapture = async (file: File) => {
+    try {
+      const uploadedFile = await uploadFile(file);
+      if (uploadedFile) {
+        setFiles(prev => [...prev, uploadedFile]);
+        setTimeout(refreshFiles, 500);
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8 fade-in">
@@ -127,9 +141,17 @@ export const Upload: React.FC = () => {
                   <h3 className="text-lg font-medium text-foreground mb-2">
                     Drop files here or click to browse
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground mb-4">
                     Supports JPG, PNG, PDF files up to 10MB
                   </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => setCameraOpen(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Take Photo with Camera
+                  </Button>
                   <Input
                     ref={fileInputRef}
                     type="file"
@@ -261,6 +283,13 @@ export const Upload: React.FC = () => {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Camera Capture Dialog */}
+        <CameraCapture
+          open={cameraOpen}
+          onClose={() => setCameraOpen(false)}
+          onCapture={handleCameraCapture}
+        />
       </div>
     </DashboardLayout>
   );

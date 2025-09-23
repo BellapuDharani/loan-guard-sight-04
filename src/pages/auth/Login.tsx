@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { ProfileCreationDialog } from '@/components/ProfileCreationDialog';
 
 export const Login: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'user' | 'officer'>('user');
@@ -26,7 +27,7 @@ export const Login: React.FC = () => {
   const [generatedOfficerOTP, setGeneratedOfficerOTP] = useState('');
   
   const [isLoading, setIsLoading] = useState(false);
-  const { user, sendUserOTP, verifyUserOTP, sendOfficerOTP, verifyOfficerOTP } = useAuth();
+  const { user, sendUserOTP, verifyUserOTP, sendOfficerOTP, verifyOfficerOTP, needsProfile, currentMobile } = useAuth();
   const { toast } = useToast();
 
   if (user) {
@@ -83,14 +84,35 @@ export const Login: React.FC = () => {
     setIsLoading(true);
     try {
       await verifyUserOTP(mobile, userOTP);
+      if (!needsProfile) {
+        toast({
+          title: 'Login Successful',
+          description: 'Welcome back to LoanTrack Pro!',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Invalid OTP',
+        description: 'Please check your OTP and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleProfileCreated = async (profile: any) => {
+    setIsLoading(true);
+    try {
+      await verifyUserOTP(currentMobile!, userOTP, profile);
       toast({
         title: 'Login Successful',
         description: 'Welcome to LoanTrack Pro!',
       });
     } catch (error) {
       toast({
-        title: 'Invalid OTP',
-        description: 'Please check your OTP and try again.',
+        title: 'Error',
+        description: 'Failed to create profile',
         variant: 'destructive',
       });
     } finally {
@@ -350,6 +372,14 @@ export const Login: React.FC = () => {
           <p>Powered by AI • Google APIs • Secure Verification</p>
         </div>
       </div>
+
+      {/* Profile Creation Dialog */}
+      <ProfileCreationDialog
+        open={needsProfile}
+        onClose={() => {}}
+        mobile={currentMobile || ''}
+        onProfileCreated={handleProfileCreated}
+      />
     </div>
   );
 };
