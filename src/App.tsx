@@ -12,6 +12,7 @@ import { OfficerDashboard } from "@/pages/officer/Dashboard";
 import { Loans } from "@/pages/officer/Loans";
 import { Alerts } from "@/pages/officer/Alerts";
 import { Verification } from "@/pages/officer/Verification";
+import { LoanManagement } from "@/pages/officer/LoanManagement";
 import { Settings } from "@/pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -82,6 +83,11 @@ const AppRoutes = () => {
       <Route path="/officer/loans" element={
         <ProtectedRoute allowedRoles={['officer']}>
           <Loans />
+        </ProtectedRoute>
+      } />
+      <Route path="/officer/loan-management" element={
+        <ProtectedRoute allowedRoles={['officer']}>
+          <LoanManagement />
         </ProtectedRoute>
       } />
       <Route path="/officer/alerts" element={

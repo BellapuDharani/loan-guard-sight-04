@@ -9,7 +9,8 @@ import {
   Shield,
   Users,
   AlertTriangle,
-  BarChart3
+  BarChart3,
+  Plus
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
   // Officer navigation
   { icon: BarChart3, label: 'Dashboard', href: '/officer/dashboard', role: 'officer' },
   { icon: Users, label: 'Loan Management', href: '/officer/loans', role: 'officer' },
+  { icon: Plus, label: 'Upload Loans', href: '/officer/loan-management', role: 'officer' },
   { icon: AlertTriangle, label: 'Alerts', href: '/officer/alerts', role: 'officer' },
   { icon: Shield, label: 'Verification', href: '/officer/verification', role: 'officer' },
   

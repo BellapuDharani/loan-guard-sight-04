@@ -253,9 +253,9 @@ export const OfficerDashboard: React.FC = () => {
               <Eye className="w-4 h-4 mr-2" />
               Review Queue
             </Button>
-            <Button onClick={() => navigate('/officer/loans')} className="btn-primary">
+            <Button onClick={() => navigate('/officer/loan-management')} className="btn-primary">
               <FileText className="w-4 h-4 mr-2" />
-              Manage Loans
+              Loan Management
             </Button>
           </div>
         </div>
