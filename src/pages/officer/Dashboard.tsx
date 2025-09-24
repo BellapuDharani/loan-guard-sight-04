@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
+import { PriceComparisonWidget } from '@/components/PriceComparisonWidget';
 
 interface LoanSummary {
   total: number;
@@ -437,6 +438,17 @@ export const OfficerDashboard: React.FC = () => {
                                 +{user.files.length - 3} more files
                               </p>
                             )}
+                          </div>
+                        )}
+                        
+                        {/* AI Price Comparison for this user */}
+                        {user.files.length > 0 && (
+                          <div className="mt-3">
+                            <PriceComparisonWidget 
+                              userId={user.id}
+                              loanId={user.loanId}
+                              userFiles={user.files}
+                            />
                           </div>
                         )}
                         

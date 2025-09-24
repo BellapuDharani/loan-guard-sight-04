@@ -125,9 +125,7 @@ export const LoanManagement: React.FC = () => {
 
   const downloadCSVTemplate = () => {
     const csvContent = [
-      'loan_number,beneficiary_name,beneficiary_phone,beneficiary_email,loan_amount,bank_name,branch_name,purpose,sanctioned_date,status',
-      'LN001,John Doe,9876543210,john@example.com,100000,State Bank,Main Branch,Agriculture,2024-01-15,pending',
-      'LN002,Jane Smith,9876543211,jane@example.com,150000,Central Bank,City Branch,Business,2024-01-20,approved'
+      'loan_number,beneficiary_name,beneficiary_phone,beneficiary_email,loan_amount,bank_name,branch_name,purpose,sanctioned_date,status'
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
