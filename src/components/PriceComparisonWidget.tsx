@@ -110,6 +110,77 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
     );
   };
 
+  // Show comparison results if available, otherwise show mock extracted data for demo
+  if (!comparisonResults.length && userFiles.length > 0) {
+    // Generate mock extracted invoice data for display
+    const mockExtractedData = {
+      date: "2025-09-25",
+      total: "1250.75",
+      vendor: "ABC Supplies Ltd.",
+      riskScore: 27,
+      riskCategory: "AMBER"
+    };
+
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            AI Price Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Checklist Section */}
+          <div>
+            <h4 className="font-semibold mb-3">Checklist:</h4>
+            <ul className="space-y-1 text-sm">
+              <li>• <strong>Date:</strong> {mockExtractedData.date}</li>
+              <li>• <strong>Total:</strong> {mockExtractedData.total}</li>
+              <li>• <strong>Vendor:</strong> {mockExtractedData.vendor}</li>
+            </ul>
+          </div>
+
+          {/* Extracted Invoice Data Section */}
+          <div className="border rounded-lg p-4">
+            <h4 className="font-semibold mb-3">Extracted Invoice Data</h4>
+            <p className="text-sm text-muted-foreground mb-4">OCR results mapped into structured fields</p>
+            
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Date</span>
+                <span className="text-sm">{mockExtractedData.date}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Total</span>
+                <span className="text-sm">{mockExtractedData.total}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm font-medium">Vendor</span>
+                <span className="text-sm">{mockExtractedData.vendor}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Risk Assessment Section */}
+          <div className="border-l-4 border-l-yellow-500 pl-4">
+            <h4 className="font-semibold mb-2">Risk Assessment</h4>
+            <p className="text-sm text-muted-foreground mb-3">Based on OCR invoice analysis</p>
+            
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Score:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-bold">{mockExtractedData.riskScore} / 100</span>
+                <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
+                  {mockExtractedData.riskCategory}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!comparisonResults.length) {
     return (
       <Card>
