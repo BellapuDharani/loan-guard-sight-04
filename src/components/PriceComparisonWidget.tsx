@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, CheckCircle, AlertCircle, Eye, FileText } from 'lucide-react';
+import { AlertTriangle, CheckCircle, AlertCircle, Eye, FileText, Loader2 } from 'lucide-react';
 import { AIPriceComparisonService } from '@/services/aiPriceComparison';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import Tesseract from 'tesseract.js';
 
 interface PriceComparisonWidgetProps {
   userId: string;
@@ -20,10 +21,98 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
   const [comparisonResults, setComparisonResults] = useState<any[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   const [selectedResult, setSelectedResult] = useState<any>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [extractedData, setExtractedData] = useState<any>(null);
 
   useEffect(() => {
-    performPriceComparison();
+    if (userFiles.length > 0) {
+      performOCRAnalysis();
+    } else {
+      setExtractedData(null);
+      setComparisonResults([]);
+    }
   }, [userId, loanId, userFiles]);
+
+  const performOCRAnalysis = async () => {
+    const imageFiles = userFiles.filter(file => 
+      file.type?.startsWith('image/') || 
+      file.name?.toLowerCase().match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i)
+    );
+
+    if (imageFiles.length === 0) {
+      setExtractedData(null);
+      return;
+    }
+
+    setOcrLoading(true);
+    try {
+      // Use the first image file for OCR
+      const file = imageFiles[0];
+      
+      // Create a file object for Tesseract
+      const fileBlob = file.file || file; // Handle different file object structures
+      
+      const { data: { text } } = await Tesseract.recognize(fileBlob, 'eng', {
+        logger: m => console.log(m) // Optional: log OCR progress
+      });
+
+      // Extract invoice data using regex patterns
+      const extracted: Record<string, string> = {};
+      
+      // Extract Invoice Number
+      const invoiceNo = text.match(/(?:Invoice|Bill|Receipt)\s*(?:No|#|Number)[:\s]*([A-Za-z0-9\-\/]+)/i);
+      if (invoiceNo) extracted["Invoice No"] = invoiceNo[1].trim();
+
+      // Extract Date
+      const datePattern = text.match(/(?:Date|Dated)[:\s]*([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{2,4})/i);
+      if (datePattern) extracted["Date"] = datePattern[1].trim();
+
+      // Extract Total Amount
+      const totalPattern = text.match(/(?:Total|Amount|Grand Total)[:\s]*(?:Rs\.?|₹|\$)?\s*([0-9,]+\.?[0-9]*)/i);
+      if (totalPattern) extracted["Total"] = totalPattern[1].replace(/,/g, '');
+
+      // Extract Vendor/Supplier
+      const vendorPattern = text.match(/(?:Vendor|Supplier|From|Company)[:\s]*([A-Za-z\s]+?)(?:\n|Date|Address)/i);
+      if (vendorPattern) extracted["Vendor"] = vendorPattern[1].trim();
+
+      // Extract Items (simple extraction)
+      const itemLines = text.split('\n').filter(line => 
+        line.match(/[0-9]+\.?[0-9]*/) && line.length > 10
+      ).slice(0, 3); // Take first 3 potential item lines
+
+      // Calculate risk score based on extracted data completeness
+      let riskScore = 0;
+      if (!extracted["Invoice No"]) riskScore += 25;
+      if (!extracted["Date"]) riskScore += 20;
+      if (!extracted["Total"]) riskScore += 30;
+      if (!extracted["Vendor"]) riskScore += 15;
+      
+      // Additional risk factors
+      if (text.length < 100) riskScore += 20; // Very short text might indicate poor OCR
+      if (!text.match(/[0-9]/)) riskScore += 40; // No numbers at all is suspicious
+
+      const riskCategory = riskScore <= 25 ? "GREEN" : riskScore <= 60 ? "AMBER" : "RED";
+
+      setExtractedData({
+        ...extracted,
+        ocrText: text,
+        riskScore: Math.min(100, riskScore),
+        riskCategory,
+        items: itemLines,
+        fileName: file.name
+      });
+
+    } catch (error) {
+      console.error('OCR Error:', error);
+      setExtractedData({
+        error: "Failed to extract data from image",
+        riskScore: 100,
+        riskCategory: "RED"
+      });
+    } finally {
+      setOcrLoading(false);
+    }
+  };
 
   const performPriceComparison = () => {
     // Get loan document data (this would come from your loan storage)
@@ -110,16 +199,30 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
     );
   };
 
-  // Show comparison results if available, otherwise show mock extracted data for demo
-  if (!comparisonResults.length && userFiles.length > 0) {
-    // Generate mock extracted invoice data for display
-    const mockExtractedData = {
-      date: "2025-09-25",
-      total: "1250.75",
-      vendor: "ABC Supplies Ltd.",
-      riskScore: 27,
-      riskCategory: "AMBER"
-    };
+  // Show OCR loading state
+  if (ocrLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            AI Price Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center py-8">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Extracting data from uploaded bill...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show extracted data if available
+  if (extractedData && !extractedData.error) {
+    const borderColor = extractedData.riskCategory === "GREEN" ? "border-l-green-500" : 
+                       extractedData.riskCategory === "AMBER" ? "border-l-yellow-500" : "border-l-red-500";
 
     return (
       <Card>
@@ -134,9 +237,10 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
           <div>
             <h4 className="font-semibold mb-3">Checklist:</h4>
             <ul className="space-y-1 text-sm">
-              <li>• <strong>Date:</strong> {mockExtractedData.date}</li>
-              <li>• <strong>Total:</strong> {mockExtractedData.total}</li>
-              <li>• <strong>Vendor:</strong> {mockExtractedData.vendor}</li>
+              {extractedData["Date"] && <li>• <strong>Date:</strong> {extractedData["Date"]}</li>}
+              {extractedData["Total"] && <li>• <strong>Total:</strong> ₹{extractedData["Total"]}</li>}
+              {extractedData["Vendor"] && <li>• <strong>Vendor:</strong> {extractedData["Vendor"]}</li>}
+              {extractedData["Invoice No"] && <li>• <strong>Invoice No:</strong> {extractedData["Invoice No"]}</li>}
             </ul>
           </div>
 
@@ -146,35 +250,71 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
             <p className="text-sm text-muted-foreground mb-4">OCR results mapped into structured fields</p>
             
             <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Date</span>
-                <span className="text-sm">{mockExtractedData.date}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Total</span>
-                <span className="text-sm">{mockExtractedData.total}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-sm font-medium">Vendor</span>
-                <span className="text-sm">{mockExtractedData.vendor}</span>
-              </div>
+              {Object.entries(extractedData).map(([key, value]) => {
+                if (key === 'ocrText' || key === 'riskScore' || key === 'riskCategory' || key === 'items' || key === 'fileName') return null;
+                return (
+                  <div key={key} className="flex justify-between">
+                    <span className="text-sm font-medium">{key}</span>
+                    <span className="text-sm">{String(value)}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           {/* Risk Assessment Section */}
-          <div className="border-l-4 border-l-yellow-500 pl-4">
+          <div className={`border-l-4 ${borderColor} pl-4`}>
             <h4 className="font-semibold mb-2">Risk Assessment</h4>
             <p className="text-sm text-muted-foreground mb-3">Based on OCR invoice analysis</p>
             
             <div className="flex items-center justify-between">
               <span className="font-medium">Score:</span>
               <div className="flex items-center gap-2">
-                <span className="text-xl font-bold">{mockExtractedData.riskScore} / 100</span>
-                <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
-                  {mockExtractedData.riskCategory}
+                <span className="text-xl font-bold">{extractedData.riskScore} / 100</span>
+                <Badge className={
+                  extractedData.riskCategory === "GREEN" ? "bg-green-100 text-green-800 border-green-200" :
+                  extractedData.riskCategory === "AMBER" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
+                  "bg-red-100 text-red-800 border-red-200"
+                }>
+                  {extractedData.riskCategory}
                 </Badge>
               </div>
             </div>
+          </div>
+
+          {/* Show extracted items if any */}
+          {extractedData.items && extractedData.items.length > 0 && (
+            <div>
+              <h4 className="font-semibold mb-2">Detected Items:</h4>
+              <ul className="text-sm space-y-1">
+                {extractedData.items.map((item: string, idx: number) => (
+                  <li key={idx} className="text-muted-foreground">• {item.trim()}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show error state if OCR failed
+  if (extractedData?.error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            AI Price Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-4">
+            <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+            <p className="text-red-600">{extractedData.error}</p>
+            <Badge className="bg-red-100 text-red-800 border-red-200 mt-2">
+              HIGH RISK
+            </Badge>
           </div>
         </CardContent>
       </Card>
