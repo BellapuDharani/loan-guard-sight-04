@@ -46,68 +46,204 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
 
     setOcrLoading(true);
     try {
+      // Get loan document for comparison
+      const loanData = JSON.parse(localStorage.getItem('loanData') || '[]');
+      const userProfile = JSON.parse(localStorage.getItem('userProfiles') || '[]')
+        .find((p: any) => p.id === userId);
+      
+      const loanDocument = loanData.find((loan: any) => 
+        loan.loanNumber === userProfile?.loanId || loan.beneficiaryId === userId
+      );
+
       // Use the first image file for OCR
       const file = imageFiles[0];
       
-      // Create a file object for Tesseract
-      const fileBlob = file.file || file; // Handle different file object structures
+      // Create proper image element for Tesseract
+      let imageSource;
+      if (file.file instanceof File) {
+        imageSource = file.file;
+      } else if (file instanceof File) {
+        imageSource = file;
+      } else {
+        // If it's a URL or base64, use that directly
+        imageSource = file.url || file;
+      }
       
-      const { data: { text } } = await Tesseract.recognize(fileBlob, 'eng', {
-        logger: m => console.log(m) // Optional: log OCR progress
+      const { data: { text } } = await Tesseract.recognize(imageSource, 'eng', {
+        logger: m => console.log(m)
       });
 
-      // Extract invoice data using regex patterns
+      console.log('OCR Text:', text); // Debug log
+
+      // Extract invoice data using improved regex patterns
       const extracted: Record<string, string> = {};
       
-      // Extract Invoice Number
-      const invoiceNo = text.match(/(?:Invoice|Bill|Receipt)\s*(?:No|#|Number)[:\s]*([A-Za-z0-9\-\/]+)/i);
-      if (invoiceNo) extracted["Invoice No"] = invoiceNo[1].trim();
+      // Extract Invoice Number - more flexible patterns
+      const invoicePatterns = [
+        /(?:Invoice|Bill|Receipt)\s*(?:No|#|Number)[:\s]*([A-Za-z0-9\-\/]+)/i,
+        /INV[\-\s]*([A-Za-z0-9\-\/]+)/i,
+        /Invoice[:\s]+([A-Za-z0-9\-\/]+)/i
+      ];
+      
+      for (const pattern of invoicePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          extracted["Invoice No"] = match[1].trim();
+          break;
+        }
+      }
 
-      // Extract Date
-      const datePattern = text.match(/(?:Date|Dated)[:\s]*([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{2,4})/i);
-      if (datePattern) extracted["Date"] = datePattern[1].trim();
+      // Extract Date - multiple formats
+      const datePatterns = [
+        /(?:Date|Dated)[:\s]*([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{2,4})/i,
+        /([0-9]{4}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{1,2})/i,
+        /([0-9]{1,2}[\/\-\.][0-9]{1,2}[\/\-\.][0-9]{4})/i
+      ];
+      
+      for (const pattern of datePatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          extracted["Date"] = match[1].trim();
+          break;
+        }
+      }
 
-      // Extract Total Amount
-      const totalPattern = text.match(/(?:Total|Amount|Grand Total)[:\s]*(?:Rs\.?|₹|\$)?\s*([0-9,]+\.?[0-9]*)/i);
-      if (totalPattern) extracted["Total"] = totalPattern[1].replace(/,/g, '');
+      // Extract Total Amount - improved patterns
+      const totalPatterns = [
+        /(?:Total|Amount|Grand Total)[:\s]*(?:Rs\.?|₹|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+        /Total[:\s]+([0-9,]+\.?[0-9]*)/i,
+        /([0-9,]+\.[0-9]{2})(?:\s*$)/i // Look for currency format at end of line
+      ];
+      
+      for (const pattern of totalPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          extracted["Total"] = match[1].replace(/,/g, '');
+          break;
+        }
+      }
 
       // Extract Vendor/Supplier
-      const vendorPattern = text.match(/(?:Vendor|Supplier|From|Company)[:\s]*([A-Za-z\s]+?)(?:\n|Date|Address)/i);
-      if (vendorPattern) extracted["Vendor"] = vendorPattern[1].trim();
-
-      // Extract Items (simple extraction)
-      const itemLines = text.split('\n').filter(line => 
-        line.match(/[0-9]+\.?[0-9]*/) && line.length > 10
-      ).slice(0, 3); // Take first 3 potential item lines
-
-      // Calculate risk score based on extracted data completeness
-      let riskScore = 0;
-      if (!extracted["Invoice No"]) riskScore += 25;
-      if (!extracted["Date"]) riskScore += 20;
-      if (!extracted["Total"]) riskScore += 30;
-      if (!extracted["Vendor"]) riskScore += 15;
+      const vendorPatterns = [
+        /(?:Vendor|Supplier|From|Company)[:\s]*([A-Za-z\s&\.Ltd]+?)(?:\n|Date|Address|Phone)/i,
+        /([A-Z][A-Za-z\s&\.]+(?:Ltd|Inc|Corp)\.?)(?:\n)/i
+      ];
       
-      // Additional risk factors
-      if (text.length < 100) riskScore += 20; // Very short text might indicate poor OCR
-      if (!text.match(/[0-9]/)) riskScore += 40; // No numbers at all is suspicious
+      for (const pattern of vendorPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          extracted["Vendor"] = match[1].trim();
+          break;
+        }
+      }
 
-      const riskCategory = riskScore <= 25 ? "GREEN" : riskScore <= 60 ? "AMBER" : "RED";
+      // Extract Asset Value if present
+      const assetPattern = text.match(/(?:Asset\s*Value|Value)[:\s]*(?:Rs\.?|₹|\$)?\s*([0-9,]+\.?[0-9]*)/i);
+      if (assetPattern) {
+        extracted["Asset Value"] = assetPattern[1].replace(/,/g, '');
+      }
+
+      console.log('Extracted Data:', extracted); // Debug log
+
+      // RISK ASSESSMENT LOGIC
+      let riskScore = 0;
+      let riskFactors: string[] = [];
+
+      // 1. Data Completeness Check (30 points max)
+      if (!extracted["Invoice No"]) {
+        riskScore += 15;
+        riskFactors.push("Missing invoice number");
+      }
+      if (!extracted["Date"]) {
+        riskScore += 10;
+        riskFactors.push("Missing date");
+      }
+      if (!extracted["Total"]) {
+        riskScore += 15;
+        riskFactors.push("Missing total amount");
+      }
+      if (!extracted["Vendor"]) {
+        riskScore += 10;
+        riskFactors.push("Missing vendor information");
+      }
+
+      // 2. Loan Document Comparison (40 points max)
+      if (loanDocument) {
+        const invoiceTotal = parseFloat(extracted["Total"] || "0");
+        const loanAmount = parseFloat(loanDocument.loanAmount || "0");
+        
+        if (invoiceTotal > 0 && loanAmount > 0) {
+          const difference = Math.abs(invoiceTotal - loanAmount) / loanAmount;
+          
+          if (difference > 0.5) { // More than 50% difference
+            riskScore += 40;
+            riskFactors.push(`Invoice amount (₹${invoiceTotal}) significantly differs from loan amount (₹${loanAmount})`);
+          } else if (difference > 0.2) { // 20-50% difference
+            riskScore += 25;
+            riskFactors.push(`Invoice amount (₹${invoiceTotal}) moderately differs from loan amount (₹${loanAmount})`);
+          } else if (difference > 0.1) { // 10-20% difference
+            riskScore += 15;
+            riskFactors.push(`Minor difference between invoice and loan amounts`);
+          }
+        }
+
+        // Check vendor against loan document
+        if (extracted["Vendor"] && loanDocument.vendor) {
+          const vendorMatch = extracted["Vendor"].toLowerCase().includes(loanDocument.vendor.toLowerCase()) ||
+                             loanDocument.vendor.toLowerCase().includes(extracted["Vendor"].toLowerCase());
+          if (!vendorMatch) {
+            riskScore += 20;
+            riskFactors.push(`Vendor mismatch: Invoice shows "${extracted["Vendor"]}" but loan document shows "${loanDocument.vendor}"`);
+          }
+        }
+      }
+
+      // 3. OCR Quality Assessment (20 points max)
+      if (text.length < 50) {
+        riskScore += 20;
+        riskFactors.push("Very poor OCR quality - insufficient text extracted");
+      } else if (text.length < 100) {
+        riskScore += 10;
+        riskFactors.push("Poor OCR quality");
+      }
+
+      // 4. Suspicious Pattern Detection (10 points max)
+      if (!text.match(/[0-9]/)) {
+        riskScore += 10;
+        riskFactors.push("No numbers detected - suspicious invoice");
+      }
+
+      // Determine risk category
+      let riskCategory;
+      if (riskScore <= 20) {
+        riskCategory = "GREEN"; // All good, auto-approve
+      } else if (riskScore <= 50) {
+        riskCategory = "AMBER"; // Needs officer review
+      } else {
+        riskCategory = "RED"; // High risk, alert officer
+      }
 
       setExtractedData({
         ...extracted,
         ocrText: text,
         riskScore: Math.min(100, riskScore),
         riskCategory,
-        items: itemLines,
-        fileName: file.name
+        riskFactors,
+        fileName: file.name,
+        loanComparison: loanDocument ? {
+          loanAmount: loanDocument.loanAmount,
+          loanVendor: loanDocument.vendor
+        } : null
       });
 
     } catch (error) {
       console.error('OCR Error:', error);
       setExtractedData({
-        error: "Failed to extract data from image",
+        error: "Failed to extract data from image. Please ensure the image is clear and contains readable text.",
         riskScore: 100,
-        riskCategory: "RED"
+        riskCategory: "RED",
+        riskFactors: ["OCR processing failed"],
+        fileName: imageFiles[0]?.name || "Unknown"
       });
     } finally {
       setOcrLoading(false);
@@ -262,12 +398,12 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
             </div>
           </div>
 
-          {/* Risk Assessment Section */}
+          {/* Risk Assessment Section with detailed factors */}
           <div className={`border-l-4 ${borderColor} pl-4`}>
             <h4 className="font-semibold mb-2">Risk Assessment</h4>
-            <p className="text-sm text-muted-foreground mb-3">Based on OCR invoice analysis</p>
+            <p className="text-sm text-muted-foreground mb-3">Based on OCR invoice analysis and loan document comparison</p>
             
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-3">
               <span className="font-medium">Score:</span>
               <div className="flex items-center gap-2">
                 <span className="text-xl font-bold">{extractedData.riskScore} / 100</span>
@@ -280,6 +416,32 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
                 </Badge>
               </div>
             </div>
+
+            {/* Show risk factors if any */}
+            {extractedData.riskFactors && extractedData.riskFactors.length > 0 && (
+              <div className="mt-3">
+                <h5 className="text-sm font-medium mb-2">Risk Factors:</h5>
+                <ul className="text-xs space-y-1">
+                  {extractedData.riskFactors.map((factor: string, idx: number) => (
+                    <li key={idx} className="text-muted-foreground flex items-start gap-1">
+                      <span className="text-red-500 mt-0.5">•</span>
+                      <span>{factor}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Show loan comparison if available */}
+            {extractedData.loanComparison && (
+              <div className="mt-3 p-2 bg-muted rounded text-xs">
+                <strong>Loan Document Comparison:</strong>
+                <div>Sanctioned Amount: ₹{extractedData.loanComparison.loanAmount}</div>
+                {extractedData.loanComparison.loanVendor && (
+                  <div>Approved Vendor: {extractedData.loanComparison.loanVendor}</div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Show extracted items if any */}
@@ -311,10 +473,29 @@ export const PriceComparisonWidget: React.FC<PriceComparisonWidgetProps> = ({
         <CardContent>
           <div className="text-center py-4">
             <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-            <p className="text-red-600">{extractedData.error}</p>
-            <Badge className="bg-red-100 text-red-800 border-red-200 mt-2">
-              HIGH RISK
+            <p className="text-red-600 mb-2">{extractedData.error}</p>
+            <Badge className="bg-red-100 text-red-800 border-red-200 mb-3">
+              HIGH RISK - OFFICER ALERT
             </Badge>
+            
+            {extractedData.riskFactors && (
+              <div className="text-left mt-4">
+                <h5 className="font-medium mb-2">Issues Detected:</h5>
+                <ul className="text-sm space-y-1">
+                  {extractedData.riskFactors.map((factor: string, idx: number) => (
+                    <li key={idx} className="text-red-600 flex items-start gap-1">
+                      <span>•</span>
+                      <span>{factor}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div className="mt-4 p-3 bg-red-50 rounded text-sm text-left">
+              <strong>Officer Action Required:</strong>
+              <p className="mt-1">This invoice requires immediate manual verification due to processing errors.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
